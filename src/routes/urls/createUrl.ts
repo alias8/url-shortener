@@ -8,35 +8,25 @@ import { prisma } from '../../db/prisma';
 const router = Router();
 
 interface CreateShortUrlRequest {
-  originalUrl: string;
+  longUrl: string;
 }
 
 router.post('/', async (req: Request, res: Response) => {
-  const originalUrl  = req.query.originalUrl
-  if(!originalUrl) {
-    res.status(404).json({ error: `Need url in query` });
+  const longUrl  = req.query.originalUrl
+  if(!longUrl || typeof longUrl != 'string') {
+    return res.status(404).json({ error: `Need url in query` });
   }
   const jwtToken = getJwtToken(req, res)
   if(!jwtToken) {
     return res.status(404).json({ error: `Bad jwt` });
   }
   const userId = jwtToken.userId
+  const shortUrl = "" // hash something
   try {
     const shortUrl =    prisma.url.create({
-      data: { username, password_hash },
+      data: { longUrl },
     });
-
-    const user = await getUserByUsername(username);
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    const match = await bcrypt.compare(password, user.password_hash);
-    if (!match) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    const payload: JwtToken = { userId: user.user_id };
-    const token = jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn: '24h' });
-    res.json({ token });
+    res.json({ shortUrl });
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (e: unknown) {
     res.status(500).json({ error: 'Internal server error' });
