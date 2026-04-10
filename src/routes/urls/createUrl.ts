@@ -22,9 +22,9 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const shortUrl = await getShortUrl(longUrl);
     const savedUrl = await prisma.url.create({
-      data: { longUrl, shortUrl, owner_id: userId },
+      data: { long_url: longUrl, short_url: shortUrl, owner_id: userId },
     });
-    res.json({ shortUrl: savedUrl.shortUrl });
+    res.json({ shortUrl: savedUrl.short_url });
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (e: unknown) {
     res.status(500).json({ error: 'Internal server error' });
@@ -38,7 +38,7 @@ async function getShortUrl(longUrl: string, count: number = 0) {
   const shortUrl = crypto.createHash('md5').update(`${longUrl}${count}`).digest('hex').slice(0, 6);
   const exists =
     (await prisma.url.count({
-      where: { shortUrl },
+      where: { short_url: shortUrl },
     })) > 0;
   if (exists) {
     return await getShortUrl(longUrl, count + 1);

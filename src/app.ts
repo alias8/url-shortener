@@ -1,11 +1,13 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import logger from 'morgan';
 import cookieParser from 'cookie-parser';
 import createError, { HttpError } from 'http-errors';
 
 import usersRouter from './routes/users';
+import urlRouter from './routes/urls';
 import { authenticateJwtToken } from './middleware/auth';
+import getRedirectUrlRouter from './routes/urls/redirect';
 
 export const app = express();
 
@@ -20,6 +22,8 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.use('/users', usersRouter);
+app.use('/urls', urlRouter);
+app.use('/', getRedirectUrlRouter); // Must be before the auth
 
 // 404 handler
 app.use((_req: Request, _res: Response, next: NextFunction) => {

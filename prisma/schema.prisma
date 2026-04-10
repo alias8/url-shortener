@@ -20,8 +20,8 @@ model User {
 
 model Url {
   id       String @id @default(uuid())
-  longUrl  String
-  shortUrl String @unique
+  long_url  String
+  short_url String @unique
   owner    User   @relation(fields: [owner_id], references: [user_id])
   owner_id String
 }
