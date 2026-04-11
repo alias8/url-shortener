@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 import { prisma } from '../../db/prisma';
 import { redis } from '../../server';
+import { sendClickToRedisQueue } from '../../utils/redisClickQueue';
 
 const router = Router();
 const ONE_DAY = 60 * 60 * 24;
@@ -11,6 +12,8 @@ export interface RedisShortUrlLookup {
   urlId: string;
 }
 
+export const REDIS_CLICKS_QUEUE_KEY = 'clicks_queue';
+
 router.get('/:shortCode', async (req: Request, res: Response) => {
   const shortUrl = req.params.shortCode as string;
   if (!shortUrl) {
@@ -20,7 +23,12 @@ router.get('/:shortCode', async (req: Request, res: Response) => {
   try {
     const redisGetUrlCache = await getUrlCache(shortUrl);
     if (redisGetUrlCache) {
-      sendClickToRedisQueue(redisGetUrlCache.urlId);
+      sendClickToRedisQueue({
+        ip_address: 'ip_address1',
+        user_agent: 'user_agent1',
+        referrer: 'referrer1',
+        url_id: redisGetUrlCache.urlId,
+      });
       return res.redirect(redisGetUrlCache.longUrl);
     }
     const savedUrl = await prisma.url.findFirst({
@@ -28,7 +36,12 @@ router.get('/:shortCode', async (req: Request, res: Response) => {
     });
     if (savedUrl) {
       const data: RedisShortUrlLookup = { longUrl: savedUrl.long_url, urlId: savedUrl.id };
-      sendClickToRedisQueue(savedUrl.id);
+      sendClickToRedisQueue({
+        ip_address: 'ip_address1',
+        user_agent: 'user_agent1',
+        referrer: 'referrer1',
+        url_id: savedUrl.id,
+      });
       setUrlCache(shortUrl, data);
       return res.redirect(savedUrl.long_url);
     }
@@ -38,10 +51,6 @@ router.get('/:shortCode', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
-function sendClickToRedisQueue(shortUrlId: string) {
-  redis.rpush('clicks_queue', shortUrlId);
-}
 
 function setUrlCache(shortUrl: string, data: RedisShortUrlLookup) {
   redis.set(shortUrl, JSON.stringify(data), 'EX', ONE_DAY);

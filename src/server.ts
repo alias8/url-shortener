@@ -7,6 +7,8 @@ import { WebsocketConnectionManager } from './WebsocketConnectionManager';
 import { RedisIncomingMessageService } from './services/messageService/RedisIncomingMessageService';
 import { WebSocketIncomingMessageService } from './services/messageService/WebSocketIncomingMessageService';
 import { setupWebsocketAndRedisEventWiring } from './websocketAndRedisEventWiring';
+import { prisma } from './db/prisma';
+import { getClickQueueCacheNextItem } from './utils/redisClickQueue';
 
 const port = process.env.PORT ?? 3000;
 
@@ -36,9 +38,11 @@ wss.on('connection', (ws, req) =>
 );
 setupWebsocketAndRedisEventWiring(redisIncomingMessageService, webSocketIncomingMessageService);
 
+let SHUTDOWN_FLAG = false;
 // Graceful shutdown — closes HTTP server and Redis connections before exiting
 function shutdown() {
   console.log('Shutting down...');
+  SHUTDOWN_FLAG = true;
   server.close(() => {
     console.log('HTTP server closed');
     Promise.all([redis.quit()]).then(() => {
@@ -47,6 +51,22 @@ function shutdown() {
     });
   });
 }
+
+async function startWorker() {
+  // Check redis queue for click analytics data. We are writing this after the click happened in the route
+  while (true) {
+    const result = await getClickQueueCacheNextItem(); // block up to 5s
+    if (result) {
+      await prisma.click.create({ data: result });
+    }
+    if (SHUTDOWN_FLAG) {
+      break;
+    }
+    // if null, loop again
+  }
+}
+
+startWorker().then();
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
