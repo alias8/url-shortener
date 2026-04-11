@@ -12,8 +12,6 @@ export interface RedisShortUrlLookup {
   urlId: string;
 }
 
-export const REDIS_CLICKS_QUEUE_KEY = 'clicks_queue';
-
 router.get('/:shortCode', async (req: Request, res: Response) => {
   const shortUrl = req.params.shortCode as string;
   if (!shortUrl) {
@@ -23,6 +21,7 @@ router.get('/:shortCode', async (req: Request, res: Response) => {
   try {
     const redisGetUrlCache = await getUrlCache(shortUrl);
     if (redisGetUrlCache) {
+      // Analytics writes → best-effort is often fine, queue + retries if you care
       sendClickToRedisQueue({
         ip_address: 'ip_address1',
         user_agent: 'user_agent1',
@@ -31,6 +30,7 @@ router.get('/:shortCode', async (req: Request, res: Response) => {
       });
       return res.redirect(redisGetUrlCache.longUrl);
     }
+    // User-facing reads → fail fast, clear error, let the client retry
     const savedUrl = await prisma.url.findFirst({
       where: { short_url: shortUrl },
     });
@@ -46,9 +46,9 @@ router.get('/:shortCode', async (req: Request, res: Response) => {
       return res.redirect(savedUrl.long_url);
     }
     return res.status(404).json({ error: 'Short url not found' });
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (e: unknown) {
-    res.status(500).json({ error: 'Internal server error' });
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    res.status(500).json({ error: `Internal server error: ${message}` });
   }
 });
 

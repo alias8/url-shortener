@@ -36,3 +36,4 @@ model Click {
   user_agent String
   referrer   String
 }
+

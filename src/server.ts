@@ -3,12 +3,13 @@ import http from 'http';
 import app from './app';
 import { Server } from 'ws';
 import { Redis } from 'ioredis';
+import { backOff } from 'exponential-backoff';
 import { WebsocketConnectionManager } from './WebsocketConnectionManager';
 import { RedisIncomingMessageService } from './services/messageService/RedisIncomingMessageService';
 import { WebSocketIncomingMessageService } from './services/messageService/WebSocketIncomingMessageService';
 import { setupWebsocketAndRedisEventWiring } from './websocketAndRedisEventWiring';
 import { prisma } from './db/prisma';
-import { getClickQueueCacheNextItem } from './utils/redisClickQueue';
+import { acknowledgeClick, getNextClick, requeueStalledClicks } from './utils/redisClickQueue';
 
 const port = process.env.PORT ?? 3000;
 
@@ -53,16 +54,25 @@ function shutdown() {
 }
 
 async function startWorker() {
-  // Check redis queue for click analytics data. We are writing this after the click happened in the route
+  await requeueStalledClicks(); // recover from previous crash
+
   while (true) {
-    const result = await getClickQueueCacheNextItem(); // block up to 5s
+    const result = await getNextClick();
     if (result) {
-      await prisma.click.create({ data: result });
+      /*
+       * This pattern protects against the situation where prisma crashed after we picked off the value
+       * from redis. We want to make sure the value is always saved somewhere before we delete it.
+       * If we just did a standard blpop, that value is not in redis and not in postgres, so if postgres
+       * or this expressjs server crashes, that value is lost.
+       * */
+      try {
+        await backOff(() => prisma.click.create({ data: result }));
+        await acknowledgeClick(result); // only remove after successful write
+      } catch (e) {
+        // Move to dead letter queue, Amazon SQS or something
+      }
     }
-    if (SHUTDOWN_FLAG) {
-      break;
-    }
-    // if null, loop again
+    if (SHUTDOWN_FLAG) break;
   }
 }
 

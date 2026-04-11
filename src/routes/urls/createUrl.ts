@@ -2,6 +2,7 @@ import { Request, Response, Router } from 'express';
 import { getJwtToken } from '../../utils/db/user';
 import { prisma } from '../../db/prisma';
 import crypto from 'crypto';
+import { backOff } from 'exponential-backoff';
 
 const router = Router();
 
@@ -21,13 +22,21 @@ router.post('/', async (req: Request, res: Response) => {
   const userId = jwtToken.userId;
   try {
     const shortUrl = await getShortUrl(longUrl);
-    const savedUrl = await prisma.url.create({
-      data: { long_url: longUrl, short_url: shortUrl, owner_id: userId },
-    });
+    // User-facing writes (e.g. creating a short URL) → retry once, then return a clear error so the client can retry idempotently
+    const savedUrl = await backOff(
+      () =>
+        prisma.url.create({
+          data: { long_url: longUrl, short_url: shortUrl, owner_id: userId },
+        }),
+      {
+        numOfAttempts: 2,
+        startingDelay: 50,
+      },
+    );
     res.json({ shortUrl: savedUrl.short_url });
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (e: unknown) {
-    res.status(500).json({ error: 'Internal server error' });
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    res.status(500).json({ error: `Internal server error: ${message}` });
   }
 });
 
@@ -35,7 +44,7 @@ async function getShortUrl(longUrl: string, count: number = 0) {
   if (count > 10) {
     throw Error(`Too many recursions in getting short url ${longUrl}`);
   }
-  const shortUrl = crypto.createHash('md5').update(`${longUrl}${count}`).digest('hex').slice(0, 6);
+  const shortUrl = crypto.createHash('md5').update(`${longUrl},${count}`).digest('hex').slice(0, 6);
   const exists =
     (await prisma.url.count({
       where: { short_url: shortUrl },
