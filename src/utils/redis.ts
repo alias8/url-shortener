@@ -1,5 +1,5 @@
-import { redisPublish } from '../server';
+import { redis } from '../server';
 
 export function publishToRedis(channel: string, message: object): void {
-  redisPublish.publish(channel, JSON.stringify(message));
+  redis.publish(channel, JSON.stringify(message));
 }

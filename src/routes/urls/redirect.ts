@@ -1,24 +1,35 @@
 import { Request, Response, Router } from 'express';
 import { prisma } from '../../db/prisma';
-import { redisPublish } from '../../server';
+import { redis } from '../../server';
 
 const router = Router();
 const ONE_DAY = 60 * 60 * 24;
+
+// short_url key will have this value:
+export interface RedisShortUrlLookup {
+  longUrl: string;
+  urlId: string;
+}
+
 router.get('/:shortCode', async (req: Request, res: Response) => {
   const shortUrl = req.params.shortCode as string;
   if (!shortUrl) {
     return res.status(404).json({ error: `Need shortUrl in query` });
   }
-  const redisCache = await redisPublish.get(shortUrl);
-  if (redisCache) {
-    return res.redirect(redisCache);
-  }
+
   try {
+    const redisGetUrlCache = await getUrlCache(shortUrl);
+    if (redisGetUrlCache) {
+      sendClickToRedisQueue(redisGetUrlCache.urlId);
+      return res.redirect(redisGetUrlCache.longUrl);
+    }
     const savedUrl = await prisma.url.findFirst({
       where: { short_url: shortUrl },
     });
     if (savedUrl) {
-      redisPublish.set(shortUrl, savedUrl.long_url, 'EX', ONE_DAY);
+      const data: RedisShortUrlLookup = { longUrl: savedUrl.long_url, urlId: savedUrl.id };
+      sendClickToRedisQueue(savedUrl.id);
+      setUrlCache(shortUrl, data);
       return res.redirect(savedUrl.long_url);
     }
     return res.status(404).json({ error: 'Short url not found' });
@@ -27,5 +38,18 @@ router.get('/:shortCode', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+function sendClickToRedisQueue(shortUrlId: string) {
+  redis.rpush('clicks_queue', shortUrlId);
+}
+
+function setUrlCache(shortUrl: string, data: RedisShortUrlLookup) {
+  redis.set(shortUrl, JSON.stringify(data), 'EX', ONE_DAY);
+}
+
+async function getUrlCache(shortUrl: string): Promise<RedisShortUrlLookup | null> {
+  const raw = await redis.get(shortUrl);
+  return raw ? JSON.parse(raw) : null;
+}
 
 export default router;

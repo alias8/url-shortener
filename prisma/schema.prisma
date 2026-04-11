@@ -19,9 +19,20 @@ model User {
 }
 
 model Url {
-  id       String @id @default(uuid())
+  id        String  @id @default(uuid())
   long_url  String
-  short_url String @unique
-  owner    User   @relation(fields: [owner_id], references: [user_id])
-  owner_id String
+  short_url String  @unique
+  owner     User    @relation(fields: [owner_id], references: [user_id])
+  owner_id  String
+  clicks    Click[]
+}
+
+model Click {
+  id         String   @id @default(uuid())
+  url        Url      @relation(fields: [url_id], references: [id])
+  url_id     String
+  time_stamp DateTime @default(now())
+  ip_address String
+  user_agent String
+  referrer   String
 }

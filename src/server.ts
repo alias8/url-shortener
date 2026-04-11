@@ -19,9 +19,7 @@ const port = process.env.PORT ?? 3000;
  * All server instances share the same Redis server.
  * WebSocket connection state (userIdToWsConnectionMap) is per-instance only.
  */
-export const redisPublish = new Redis(); // defaults to localhost:6379; set REDIS_URL for remote
-export const redisSubscribe = new Redis();
-export const redisGeo = new Redis();
+export const redis = new Redis(); // defaults to localhost:6379; set REDIS_URL for remote
 
 const server = http.createServer(app);
 server.listen(port, () => {
@@ -43,7 +41,7 @@ function shutdown() {
   console.log('Shutting down...');
   server.close(() => {
     console.log('HTTP server closed');
-    Promise.all([redisPublish.quit(), redisSubscribe.quit(), redisGeo.quit()]).then(() => {
+    Promise.all([redis.quit()]).then(() => {
       console.log('Redis connections closed');
       process.exit(0);
     });
