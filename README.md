@@ -35,10 +35,13 @@ can follow a short link). On success the decoded token is attached to `req.jwtTo
 
 ### Creating and resolving short URLs
 
-- **Create** (`POST /urls/create`, `src/routes/urls/createUrl.ts`): hashes the long URL with MD5,
-  takes the first 6 hex characters as the short code, and recurses (appending an attempt counter)
-  if that code is already taken. The insert is wrapped in `backOff` for a couple of retries before
-  giving up.
+- **Create** (`POST /urls/create`, `src/routes/urls/createUrl.ts`): hashes the long URL with MD5
+  and takes the first 6 hex characters as the short code, then inserts it directly — the DB's
+  unique constraint on `short_url` is the actual source of truth for "is this code taken," not a
+  pre-check, since a `SELECT`-then-`INSERT` check is racy across multiple server instances (two
+  servers can both see a code as free and try to insert it). The whole insert is wrapped in
+  `backOff`; each retry (collision or transient DB error) generates a fresh candidate code by
+  bumping an attempt counter into the hash input, up to 10 attempts.
 - **Redirect** (`GET /:shortCode`, `src/routes/urls/redirect.ts`): checks Redis first
   (`short_url` → `{ longUrl, urlId }`, 24h TTL). On a cache miss it falls back to Postgres, then
   populates the cache for next time. Every successful resolution — cached or not — enqueues a

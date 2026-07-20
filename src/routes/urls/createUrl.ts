@@ -21,15 +21,21 @@ router.post('/', async (req: Request, res: Response) => {
   }
   const userId = jwtToken.userId;
   try {
-    const shortUrl = await getShortUrl(longUrl);
-    // User-facing writes (e.g. creating a short URL) → retry once, then return a clear error so the client can retry idempotently
+    // The DB's unique constraint on short_url is the real source of truth, not a pre-check —
+    // two servers can otherwise both see a code as free and race to insert it. Each retry
+    // (whether from a collision or a transient DB error) generates a fresh candidate code.
+    let attempt = 0;
     const savedUrl = await backOff(
       () =>
         prisma.url.create({
-          data: { long_url: longUrl, short_url: shortUrl, owner_id: userId },
+          data: {
+            long_url: longUrl,
+            short_url: getShortUrlCandidate(longUrl, attempt++),
+            owner_id: userId,
+          },
         }),
       {
-        numOfAttempts: 2,
+        numOfAttempts: 10,
         startingDelay: 50,
       },
     );
@@ -40,20 +46,8 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-async function getShortUrl(longUrl: string, count: number = 0) {
-  if (count > 10) {
-    throw Error(`Too many recursions in getting short url ${longUrl}`);
-  }
-  const shortUrl = crypto.createHash('md5').update(`${longUrl},${count}`).digest('hex').slice(0, 6);
-  const exists =
-    (await prisma.url.count({
-      where: { short_url: shortUrl },
-    })) > 0;
-  if (exists) {
-    return await getShortUrl(longUrl, count + 1);
-  } else {
-    return shortUrl;
-  }
+function getShortUrlCandidate(longUrl: string, attempt: number): string {
+  return crypto.createHash('md5').update(`${longUrl},${attempt}`).digest('hex').slice(0, 6);
 }
 
 export default router;
