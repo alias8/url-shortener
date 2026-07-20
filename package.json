@@ -28,8 +28,7 @@
     "md5": "^2.3.0",
     "morgan": "~1.9.1",
     "pg": "^8.20.0",
-    "prisma": "^7.6.0",
-    "ws": "^8.20.0"
+    "prisma": "^7.6.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -42,7 +41,6 @@
     "@types/morgan": "^1.9.9",
     "@types/node": "^25.5.0",
     "@types/pg": "^8.20.0",
-    "@types/ws": "^8.18.1",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.8.1",
