@@ -12,6 +12,16 @@ const port = process.env.PORT ?? 3000;
 // (see routes/urls/redirect.ts) and the click-tracking queue (see utils/redisClickQueue.ts).
 export const redis = new Redis(); // defaults to localhost:6379; set REDIS_URL for remote
 
+// At 1B+ urls, the cache can't hold every short_url forever no matter how much RAM you throw at
+// it — maxmemory will eventually be hit. Redis's default policy (noeviction) makes writes start
+// failing at that point; allkeys-lru instead evicts the coldest keys, so hot urls (which is most
+// of the traffic — see learnings.md on hot-key skew) stay cached and only the long tail falls
+// back to Postgres. Best-effort: some managed Redis providers (e.g. certain ElastiCache configs)
+// disable CONFIG SET, so a failure here shouldn't crash the app.
+redis
+  .config('SET', 'maxmemory-policy', 'allkeys-lru')
+  .catch((e) => console.warn('Could not set maxmemory-policy (non-fatal):', e));
+
 const server = http.createServer(app);
 server.listen(port, () => {
   console.log(`Server listening on port ${port}`);
@@ -44,7 +54,11 @@ async function startWorker() {
        * or this expressjs server crashes, that value is lost.
        * */
       try {
-        await backOff(() => prisma.click.create({ data: result }));
+        // Click.url_id is bigint in the DB; the queue payload carries it as a string (bigint
+        // doesn't survive a JSON.stringify round-trip), so convert back before the write.
+        await backOff(() =>
+          prisma.click.create({ data: { ...result, url_id: BigInt(result.url_id) } }),
+        );
         await acknowledgeClick(result); // only remove after successful write
       } catch (e) {
         // Move to dead letter queue, Amazon SQS or something

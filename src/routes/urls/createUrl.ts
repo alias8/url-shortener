@@ -1,8 +1,8 @@
 import { Request, Response, Router } from 'express';
 import { getJwtToken } from '../../utils/db/user';
 import { prisma } from '../../db/prisma';
-import crypto from 'crypto';
 import { backOff } from 'exponential-backoff';
+import { encodeId } from '../../utils/shortCode';
 
 const router = Router();
 
@@ -21,21 +21,25 @@ router.post('/', async (req: Request, res: Response) => {
   }
   const userId = jwtToken.userId;
   try {
-    // The DB's unique constraint on short_url is the real source of truth, not a pre-check —
-    // two servers can otherwise both see a code as free and race to insert it. Each retry
-    // (whether from a collision or a transient DB error) generates a fresh candidate code.
-    let attempt = 0;
+    // short_url is derived from a reserved id (see src/utils/shortCode.ts), which is a bijection —
+    // collisions are structurally impossible, unlike the old md5-slice(6) scheme (only 16^6 ~16.7M
+    // possible codes). backOff here just covers transient DB errors, not collision retries.
     const savedUrl = await backOff(
-      () =>
-        prisma.url.create({
+      async () => {
+        const [{ nextval }] = await prisma.$queryRaw<{ nextval: bigint }[]>`
+          SELECT nextval(pg_get_serial_sequence('"Url"', 'id')) AS nextval
+        `;
+        return prisma.url.create({
           data: {
+            id: nextval,
             long_url: longUrl,
-            short_url: getShortUrlCandidate(longUrl, attempt++),
+            short_url: encodeId(nextval),
             owner_id: userId,
           },
-        }),
+        });
+      },
       {
-        numOfAttempts: 10,
+        numOfAttempts: 5,
         startingDelay: 50,
       },
     );
@@ -45,9 +49,5 @@ router.post('/', async (req: Request, res: Response) => {
     res.status(500).json({ error: `Internal server error: ${message}` });
   }
 });
-
-function getShortUrlCandidate(longUrl: string, attempt: number): string {
-  return crypto.createHash('md5').update(`${longUrl},${attempt}`).digest('hex').slice(0, 6);
-}
 
 export default router;

@@ -30,17 +30,22 @@ router.get('/:shortCode', async (req: Request, res: Response) => {
       });
       return res.redirect(redisGetUrlCache.longUrl);
     }
-    // User-facing reads → fail fast, clear error, let the client retry
-    const savedUrl = await prisma.url.findFirst({
+    // User-facing reads → fail fast, clear error, let the client retry.
+    // findUnique (not findFirst) since short_url is a unique index — same result, but makes the
+    // lookup strategy explicit and lets Prisma use the unique-index-backed query path.
+    const savedUrl = await prisma.url.findUnique({
       where: { short_url: shortUrl },
     });
     if (savedUrl) {
-      const data: RedisShortUrlLookup = { longUrl: savedUrl.long_url, urlId: savedUrl.id };
+      // savedUrl.id is a bigint (Url.id) — stringify before it crosses a JSON boundary (Redis
+      // cache, click queue payload), since JSON.stringify throws on raw bigint values.
+      const urlId = savedUrl.id.toString();
+      const data: RedisShortUrlLookup = { longUrl: savedUrl.long_url, urlId };
       sendClickToRedisQueue({
         ip_address: 'ip_address1',
         user_agent: 'user_agent1',
         referrer: 'referrer1',
-        url_id: savedUrl.id,
+        url_id: urlId,
       });
       setUrlCache(shortUrl, data);
       return res.redirect(savedUrl.long_url);

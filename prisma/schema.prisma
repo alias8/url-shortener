@@ -19,7 +19,11 @@ model User {
 }
 
 model Url {
-  id        String  @id @default(uuid())
+  // Bigint autoincrement instead of a random uuid: the short_url code is derived directly from
+  // this id (see src/utils/shortCode.ts), which is what guarantees short codes never collide at
+  // 1B+ rows. It also keeps the primary-key index insert-ordered instead of random (uuid v4 PKs
+  // cause index page splits/bloat at large row counts).
+  id        BigInt  @id @default(autoincrement())
   long_url  String
   short_url String  @unique
   owner     User    @relation(fields: [owner_id], references: [user_id])
@@ -28,12 +32,19 @@ model Url {
 }
 
 model Click {
-  id         String   @id @default(uuid())
+  // Range-partitioned by time_stamp at the DB level (see the migration SQL) so the table that
+  // grows fastest — one row per redirect, a multiple of the url count — never becomes one giant
+  // unbounded index; old partitions can be dropped/archived instead of deleted row-by-row.
+  // Postgres requires the partition key in every unique constraint, hence the composite id here
+  // instead of a plain @id.
+  id         BigInt   @default(autoincrement())
   url        Url      @relation(fields: [url_id], references: [id])
-  url_id     String
+  url_id     BigInt
   time_stamp DateTime @default(now())
   ip_address String
   user_agent String
   referrer   String
+
+  @@id([id, time_stamp])
 }
 
