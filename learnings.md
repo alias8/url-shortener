@@ -39,3 +39,15 @@ Other rabbit holes interviewers go down
 
   ---
 The URL shortener is a Trojan horse. The toy version takes 20 minutes. The production version is a distributed systems course.
+
+  ---
+Bijective encoding vs. hashing (why `shortCode.ts` isn't "just a hash")
+
+`encodeId` looks hash-like (maps input to a spread-out short string) but it's a **bijection**, not a hash — a fundamentally different tool:
+
+- **Bijection (this code)**: multiplies the id by an odd constant mod 2^40. Odd * power-of-2-modulus has no common factors, so the multiply just *permutes* every element of `{0 ... 2^40-1}` — every input maps to exactly one output and back again (`decodeId` inverts it via `modInverse`). Zero collisions is a mathematical guarantee, not a probabilistic outcome, as long as the input space fits inside the modulus.
+- **Hash (e.g. MD5)**: deliberately many-to-one and one-way. Arbitrary-length input compressed into a *fixed* output space (128 bits for MD5) via round after round of bitwise mixing (Merkle–Damgård construction). Goals are one-wayness and the avalanche effect (1 input bit flip → ~half the output bits flip), not reversibility. Because the input space is unbounded but the output space is fixed, collisions are inevitable (pigeonhole principle) — only a matter of when.
+
+Collision math (birthday paradox): with an n-bit hash output, expect a collision after roughly 2^(n/2) inputs, not 2^n. This project's *old* scheme (md5 truncated to 6 hex chars = 24 bits) would start colliding around 2^12 ≈ 4,096 URLs — far sooner than the naive "16.7M possible codes" intuition suggests. That's exactly why it was replaced with the bijective scheme sized to the actual expected id range (2^40 for ~1B ids, ~1000x headroom).
+
+Interview soundbite: hashing solves "compress unbounded input into a fixed, well-distributed space" (no collision guarantee, needs headroom + retry logic); a bijection solves "obfuscate/permute a *known, bounded* input space" (zero collisions by construction, reversible, but only as unpredictable as the mixing step — not a security boundary).
